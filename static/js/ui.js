@@ -1,0 +1,238 @@
+/**
+ * UI Module - Handles DOM manipulation and UI updates
+ */
+
+// Import dependencies
+import { renderMarkdown } from './markdown.js';
+import { escapeHtml } from './utils.js';
+
+/**
+ * Show loading state
+ * @param {string} message - Optional loading message
+ */
+export function showLoading(message = 'Analyzing articles...') {
+    const loading = document.getElementById('loading');
+    const loadingText = document.getElementById('loading-text');
+    if (loading) {
+        loading.classList.remove('hidden');
+    }
+    if (loadingText) {
+        loadingText.textContent = message;
+    }
+}
+
+/**
+ * Update loading message
+ * @param {string} message - Loading message
+ */
+export function updateLoadingMessage(message) {
+    const loadingText = document.getElementById('loading-text');
+    if (loadingText) {
+        loadingText.style.opacity = '0';
+        setTimeout(() => {
+            loadingText.textContent = message;
+            loadingText.style.opacity = '1';
+        }, 150);
+    }
+}
+
+/**
+ * Hide loading state
+ */
+export function hideLoading() {
+    const loading = document.getElementById('loading');
+    if (loading) {
+        loading.classList.add('hidden');
+    }
+}
+
+/**
+ * Show error message
+ * @param {string} message - Error message to display
+ * @param {string} guidance - Optional guidance text
+ */
+export function showError(message, guidance = null) {
+    const errorContainer = document.getElementById('error-container');
+    if (errorContainer) {
+        let guidanceHtml = '';
+        if (guidance) {
+            guidanceHtml = `<div class="error-guidance">${escapeHtml(guidance)}</div>`;
+        }
+        // Default guidance for common errors
+        if (!guidance) {
+            if (message.toLowerCase().includes('network') || message.toLowerCase().includes('fetch')) {
+                guidanceHtml = '<div class="error-guidance">Please check your connection and try again.</div>';
+            } else if (message.toLowerCase().includes('not found')) {
+                guidanceHtml = '<div class="error-guidance">Try searching for a different article or check the URL.</div>';
+            } else {
+                guidanceHtml = '<div class="error-guidance">Please try again or contact support if the issue persists.</div>';
+            }
+        }
+        errorContainer.innerHTML = `
+            <div class="error">
+                <div class="error-message">${escapeHtml(message)}</div>
+                ${guidanceHtml}
+            </div>
+        `;
+    }
+}
+
+/**
+ * Clear error message
+ */
+export function clearError() {
+    const errorContainer = document.getElementById('error-container');
+    if (errorContainer) {
+        errorContainer.innerHTML = '';
+    }
+}
+
+/**
+ * Update UI for results view
+ */
+export function showResultsView() {
+    const body = document.body;
+    const mainContainer = document.getElementById('mainContainer');
+    const initialView = document.getElementById('initialView');
+    const resultsContainer = document.getElementById('results-container');
+
+    if (body) body.classList.add('has-results');
+    if (mainContainer) mainContainer.classList.add('has-results');
+    if (initialView) initialView.style.minHeight = 'auto';
+    if (resultsContainer) resultsContainer.classList.remove('hidden');
+}
+
+/**
+ * Display article content
+ * @param {string} containerId - ID of container element
+ * @param {Object} articleData - Article data to display
+ * @param {string} contentKey - Key for content (summary/intro)
+ */
+export function displayArticle(containerId, articleData, contentKey = 'summary') {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    if (articleData) {
+        const title = articleData.title || '';
+        const url = articleData.url || '';
+        const content = articleData[contentKey] || '';
+        const sections = articleData.sections || [];
+        
+        const titleHtml = url 
+            ? `<div class="title"><a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a></div>`
+            : `<div class="title">${escapeHtml(title)}</div>`;
+        
+        const urlHtml = url 
+            ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer" class="article-url">${escapeHtml(url)}</a>`
+            : '';
+        
+        container.innerHTML = `
+            ${titleHtml}
+            ${urlHtml}
+            <div class="content">${escapeHtml(content)}</div>
+            <div class="sections">
+                <strong>Sections:</strong>
+                <ul>
+                    ${sections.map(s => `<li>• ${escapeHtml(s)}</li>`).join('')}
+                </ul>
+            </div>
+        `;
+        
+        // Update scroll indicators after content is rendered
+        setTimeout(() => {
+            updateScrollIndicators(containerId);
+            // Add scroll listeners for dynamic updates
+            const articleBox = container.closest('.article-box');
+            if (articleBox) {
+                articleBox.addEventListener('scroll', () => updateScrollIndicators(containerId), { passive: true });
+            }
+        }, 100);
+    } else {
+        container.innerHTML = '<div class="content">Article not found</div>';
+    }
+}
+
+/**
+ * Update scroll indicators for article boxes
+ * @param {string} containerId - ID of container element
+ */
+function updateScrollIndicators(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    
+    const articleBox = container.closest('.article-box');
+    if (!articleBox) return;
+    
+    // Use the article box itself for scroll calculations
+    const scrollTop = articleBox.scrollTop;
+    const scrollHeight = articleBox.scrollHeight;
+    const clientHeight = articleBox.clientHeight;
+    
+    // Check if scrollable
+    const isScrollable = scrollHeight > clientHeight;
+    
+    if (isScrollable) {
+        // Check top scroll
+        if (scrollTop > 10) {
+            articleBox.classList.add('scrollable-top');
+        } else {
+            articleBox.classList.remove('scrollable-top');
+        }
+        
+        // Check bottom scroll
+        if (scrollTop < scrollHeight - clientHeight - 10) {
+            articleBox.classList.add('scrollable-bottom');
+        } else {
+            articleBox.classList.remove('scrollable-bottom');
+        }
+    } else {
+        articleBox.classList.remove('scrollable-top', 'scrollable-bottom');
+    }
+}
+
+/**
+ * Display comparison content
+ * @param {string} markdown - Markdown content to render
+ * @param {string} error - Error message if comparison failed
+ */
+export function displayComparison(markdown, error) {
+    const comparisonContent = document.getElementById('comparison-content');
+    const comparisonRaw = document.getElementById('comparison-raw');
+
+    if (error) {
+        const errorText = `Unable to compare: ${error}`;
+        if (comparisonContent) comparisonContent.textContent = errorText;
+        if (comparisonRaw) comparisonRaw.textContent = errorText;
+        return;
+    }
+
+    if (!markdown) {
+        const noDataText = 'One or both articles were not found.';
+        if (comparisonContent) comparisonContent.textContent = noDataText;
+        if (comparisonRaw) comparisonRaw.textContent = noDataText;
+        return;
+    }
+
+    // Store markdown for copy functionality
+    window.lastComparisonMarkdown = markdown;
+
+    if (comparisonContent) {
+        comparisonContent.innerHTML = renderMarkdown(markdown);
+    }
+    if (comparisonRaw) {
+        comparisonRaw.textContent = markdown;
+    }
+}
+
+/**
+ * Set button disabled state
+ * @param {string} buttonId - ID of button element
+ * @param {boolean} disabled - Disabled state
+ */
+export function setButtonDisabled(buttonId, disabled) {
+    const button = document.getElementById(buttonId);
+    if (button) {
+        button.disabled = disabled;
+    }
+}
+

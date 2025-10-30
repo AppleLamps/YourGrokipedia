@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grokipedia v. Wikipedia · Article Comparator</title>
+    
+    <!-- CSS Files -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/layout.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/animations.css') }}">
+</head>
+
+<body>
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <h2>Saved Comparisons</h2>
+            <button class="sidebar-toggle-btn" id="sidebarCloseBtn" aria-label="Close sidebar" title="Close sidebar">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <path d="M12 4L4 12M4 4L12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+            </button>
+        </div>
+        <div class="sidebar-content" id="savedComparisons">
+            <div class="sidebar-empty" id="sidebarEmpty">
+                <p>No saved comparisons yet.</p>
+                <p class="sidebar-empty-hint">Save a comparison to see it here.</p>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Sidebar toggle button (floating) -->
+    <button class="sidebar-toggle-btn floating" id="sidebarToggleBtn" aria-label="Open sidebar" title="View saved comparisons">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <path d="M3 5H17M3 10H17M3 15H17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <span class="sidebar-badge" id="sidebarBadge" style="display: none;">0</span>
+    </button>
+
+    <div class="container" id="mainContainer">
+        <div class="initial-view" id="initialView">
+            <div class="header">
+                <h1>
+                    <button class="home-link" id="homeLink" aria-label="Return to home page" title="Return to home page">
+                        Grokipedia v. Wikipedia
+                    </button>
+                    <span class="badge" aria-label="version">v0.1</span>
+                </h1>
+                <p>Article Comparison Tool</p>
+            </div>
+
+            <div class="search-container">
+                <div class="search-bar">
+                    <svg class="search-icon" width="20" height="20" viewBox="0 0 20 20" fill="none"
+                        xmlns="http://www.w3.org/2000/svg">
+                        <path
+                            d="M19 19L13 13M15 8C15 11.866 11.866 15 8 15C4.13401 15 1 11.866 1 8C1 4.13401 4.13401 1 8 1C11.866 1 15 4.13401 15 8Z"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                    <input type="text" id="article-url" class="search-input" placeholder="Enter article URL or name..."
+                        autocomplete="off" aria-label="Article URL" aria-autocomplete="list" aria-controls="suggestions">
+                    <button class="search-button" id="compareBtn" aria-label="Compare articles" title="Compare articles">
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"
+                            aria-hidden="true">
+                            <path d="M3.5 12.5L12.5 3.5" stroke="currentColor" stroke-width="2"
+                                stroke-linecap="round" />
+                            <path d="M5 3.5H12.5V11" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                stroke-linejoin="round" />
+                        </svg>
+                    </button>
+                </div>
+                <div id="suggestions" class="suggestions hidden" role="listbox" aria-label="Search suggestions">
+                    <div class="suggestions-empty hidden">No articles found. Try a different search term.</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="loading" class="loading hidden">
+            <div class="spinner"></div>
+            <div id="loading-text">Analyzing articles...</div>
+        </div>
+
+        <div id="error-container"></div>
+
+        <div id="results-container" class="hidden">
+            <div class="results-header">
+                <button class="home-link results-home-link" id="resultsHomeLink" aria-label="Return to home page" title="Return to home page">
+                    Grokipedia v. Wikipedia
+                </button>
+                <button class="new-search-btn" id="newSearchBtn" aria-label="Start new search" title="Start new search">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M8 3V13M3 8H13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                    New Search
+                </button>
+            </div>
+            <div class="results">
+                <div class="article-box" id="grokipedia-box">
+                    <div class="scroll-indicator scroll-indicator-top"></div>
+                    <div class="article-header">
+                        <h3>Grokipedia</h3>
+                        <button class="tool-btn copy-btn" id="copyGrokBtn"
+                                aria-label="Copy Grokipedia details" title="Copy Grokipedia article">
+                                <svg class="copy-icon" width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                    <path d="M5 3H2C1.44772 3 1 3.44772 1 4V12C1 12.5523 1.44772 13 2 13H10C10.5523 13 11 12.5523 11 12V9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                    <path d="M5 9L5 3C5 2.44772 5.44772 2 6 2H12C12.5523 2 13 2.44772 13 3V9C13 9.55228 12.5523 10 12 10H6C5.44772 10 5 9.55228 5 9Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                </svg>
+                                Copy
+                        </button>
+                    </div>
+                    <div class="article-content" id="grokipedia-content"></div>
+                    <div class="scroll-indicator scroll-indicator-bottom"></div>
+                </div>
+
+                <div class="article-box" id="wikipedia-box">
+                    <div class="scroll-indicator scroll-indicator-top"></div>
+                    <div class="article-header">
+                        <h3>Wikipedia</h3>
+                        <button class="tool-btn copy-btn" id="copyWikiBtn"
+                                aria-label="Copy Wikipedia details" title="Copy Wikipedia article">
+                                <svg class="copy-icon" width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                    <path d="M5 3H2C1.44772 3 1 3.44772 1 4V12C1 12.5523 1.44772 13 2 13H10C10.5523 13 11 12.5523 11 12V9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                    <path d="M5 9L5 3C5 2.44772 5.44772 2 6 2H12C12.5523 2 13 2.44772 13 3V9C13 9.55228 12.5523 10 12 10H6C5.44772 10 5 9.55228 5 9Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                </svg>
+                                Copy
+                        </button>
+                    </div>
+                    <div class="article-content" id="wikipedia-content"></div>
+                    <div class="scroll-indicator scroll-indicator-bottom"></div>
+                </div>
+
+                <div class="comparison-box">
+                    <div class="article-header">
+                        <h3>Comparison</h3>
+                        <div class="comparison-toolbar">
+                            <button class="tool-btn copy-btn" id="copyBtn" aria-label="Copy comparison" title="Copy comparison text">
+                                <svg class="copy-icon" width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                    <path d="M5 3H2C1.44772 3 1 3.44772 1 4V12C1 12.5523 1.44772 13 2 13H10C10.5523 13 11 12.5523 11 12V9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                    <path d="M5 9L5 3C5 2.44772 5.44772 2 6 2H12C12.5523 2 13 2.44772 13 3V9C13 9.55228 12.5523 10 12 10H6C5.44772 10 5 9.55228 5 9Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                </svg>
+                                Copy
+                            </button>
+                            <button class="tool-btn" id="saveBtn" aria-label="Save comparison" title="Save this comparison">
+                                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                    <path d="M7 2V9M7 9L4 6M7 9L10 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <path d="M2 12H12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                </svg>
+                                Save
+                            </button>
+                            <button class="tool-btn" id="rawToggle" aria-pressed="false"
+                                aria-label="Toggle raw Markdown view" title="Toggle raw Markdown view">Raw</button>
+                        </div>
+                    </div>
+                    <div class="comparison-content" id="comparison-content"></div>
+                    <pre id="comparison-raw" class="raw-block hidden"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript Modules -->
+    <script type="module" src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+
+</html>

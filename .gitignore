@@ -1,0 +1,27 @@
+# Environment variables
+.env
+
+# Python bytecode cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Backup files
+app.py.old
+
+# Python package metadata (grokipedia-sdk)
+grokipedia-sdk/grokipedia_sdk.egg-info/
+
+# Virtual environments (if created)
+venv/
+env/
+.venv/
+
+# IDE files (if used)
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
