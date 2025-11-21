@@ -16,10 +16,38 @@ export async function searchArticles(query, limit = 8) {
         if (!response.ok) {
             throw new Error(data.error || 'Search failed');
         }
-        
         return data.results || [];
     } catch (error) {
         console.error('Search error:', error);
+        throw error;
+    }
+}
+
+/**
+ * Request edit suggestions for a Grokipedia article
+ * @param {string} articleUrl - URL or slug reference
+ * @returns {Promise<Object>} Edit suggestion payload
+ */
+export async function requestEdits(articleUrl) {
+    try {
+        const response = await fetch('/edits', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                article_url: articleUrl
+            })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.error || 'Failed to generate edit suggestions');
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error('Edits error:', error);
         throw error;
     }
 }

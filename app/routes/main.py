@@ -7,7 +7,12 @@ from app.utils.url_parser import (
 )
 from app.utils.sdk_manager import get_cached_client
 from app.services.article_fetcher import scrape_wikipedia, fetch_grokipedia_article
-from app.services.comparison_service import compare_articles, generate_grokipedia_tldr, generate_wikipedia_summary
+from app.services.comparison_service import (
+    compare_articles,
+    generate_grokipedia_tldr,
+    generate_wikipedia_summary
+)
+from app.services.edits_service import generate_edit_suggestions
 
 
 bp = Blueprint('main', __name__)
@@ -205,5 +210,54 @@ def compare():
         
     except Exception as e:
         print(f"Error in compare endpoint: {e}")
+        return jsonify({'error': f'Internal server error: {str(e)}'}), 500
+
+
+@bp.route('/edits', methods=['POST'])
+def edits():
+    """Handle edit suggestion requests for Grokipedia articles."""
+    try:
+        data = request.json or {}
+        article_url = (data.get('article_url') or '').strip()
+
+        if not article_url:
+            return jsonify({'error': 'Please provide an article URL'}), 400
+
+        source = detect_source(article_url)
+        grokipedia_url = None
+
+        if source == 'grokipedia':
+            grokipedia_url = article_url
+        elif source == 'wikipedia':
+            grokipedia_url = convert_to_other_source(article_url)
+            if not grokipedia_url:
+                return jsonify({'error': 'Could not extract Grokipedia slug from URL'}), 400
+        else:
+            resolved_slug = resolve_local_slug_if_available(article_url)
+            if resolved_slug:
+                grokipedia_url = f"https://grokipedia.com/page/{resolved_slug}"
+            else:
+                return jsonify({'error': 'Provide a Grokipedia URL or recognizable article name'}), 400
+
+        grokipedia_data = fetch_grokipedia_article(grokipedia_url)
+        if not grokipedia_data:
+            return jsonify({'error': 'Grokipedia article not found'}), 404
+
+        grokipedia_tldr = generate_grokipedia_tldr(grokipedia_data)
+        if grokipedia_tldr:
+            grokipedia_data['tldr'] = grokipedia_tldr
+
+        edits_output = generate_edit_suggestions(grokipedia_data)
+
+        return jsonify({
+            'grokipedia': grokipedia_data,
+            'grokipedia_url': grokipedia_url,
+            'edits': edits_output
+        })
+
+    except (RuntimeError, ValueError) as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        print(f"Error in edits endpoint: {e}")
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 

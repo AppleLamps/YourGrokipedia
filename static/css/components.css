@@ -14,6 +14,86 @@
     vertical-align: middle;
 }
 
+.mode-toggle-card {
+    width: 100%;
+    max-width: 280px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 12px 16px;
+    margin: 0 auto 24px;
+    box-shadow: none;
+}
+
+.mode-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+}
+
+.mode-label {
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: rgba(255, 255, 255, 0.5);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.mode-switch {
+    position: relative;
+    width: 48px;
+    height: 24px;
+}
+
+.mode-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.mode-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 999px;
+    transition: background 0.3s ease;
+}
+
+.mode-slider::before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    top: 3px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.3s ease;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.mode-switch input:checked + .mode-slider {
+    background: linear-gradient(120deg, #77f5ff, #977bff);
+}
+
+.mode-switch input:checked + .mode-slider::before {
+    transform: translateX(24px);
+}
+
+.mode-description {
+    margin-top: 8px;
+    text-align: center;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.5);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
 .search-bar {
     display: flex;
     align-items: center;
@@ -396,6 +476,15 @@
     font-size: 16px;
     margin: 24px 0 12px;
     font-weight: 600;
+}
+
+#edits-content {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-family: 'SF Mono', 'Monaco', 'Inconsolata', 'Fira Code', 'Droid Sans Mono', monospace;
+    font-size: 14px;
+    line-height: 1.6;
+    color: rgba(255, 255, 255, 0.9);
 }
 
 .comparison-box .comparison-content p {

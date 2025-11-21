@@ -245,6 +245,10 @@ body.has-results {
     width: 100%;
 }
 
+.results.edits-mode {
+    grid-template-columns: 1fr;
+}
+
 .initial-view {
     display: flex;
     flex-direction: column;

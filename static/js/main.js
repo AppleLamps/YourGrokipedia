@@ -2,7 +2,7 @@
  * Main Application Module - Initializes and coordinates all modules
  */
 
-import { compareArticles } from './api.js';
+import { compareArticles, requestEdits } from './api.js';
 import { 
     showLoading, 
     hideLoading,
@@ -23,7 +23,9 @@ import { getComparisonById } from './storage.js';
 // Global state
 let lastGrokCopyText = '';
 let lastWikiCopyText = '';
+let lastEditsCopyText = '';
 let currentComparisonData = null;
+let isEditsMode = false;
 
 /**
  * Initialize the application
@@ -41,6 +43,9 @@ export function init() {
     const saveBtn = document.getElementById('saveBtn');
     const homeLink = document.getElementById('homeLink');
     const resultsHomeLink = document.getElementById('resultsHomeLink');
+    const editsModeToggle = document.getElementById('editsModeToggle');
+    const modeDescription = document.getElementById('modeDescription');
+    const copyEditsBtn = document.getElementById('copyEditsBtn');
 
     if (!articleInput || !compareBtn) {
         console.error('Required elements not found');
@@ -62,12 +67,12 @@ export function init() {
     }
 
     // Initialize search/autocomplete
-    initSearch(articleInput, suggestionsContainer, (result) => {
-        compareArticlesHandler();
+    initSearch(articleInput, suggestionsContainer, () => {
+        handleAnalyzeRequest();
     });
 
     // Compare button click
-    compareBtn.addEventListener('click', compareArticlesHandler);
+    compareBtn.addEventListener('click', handleAnalyzeRequest);
 
     // New Search button
     if (newSearchBtn) {
@@ -80,8 +85,8 @@ export function init() {
     articleInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
-            if (!handleEnterKey(suggestionsContainer, () => compareArticlesHandler())) {
-                compareArticlesHandler();
+            if (!handleEnterKey(suggestionsContainer, () => handleAnalyzeRequest())) {
+                handleAnalyzeRequest();
             }
         }
     });
@@ -92,6 +97,12 @@ export function init() {
             const text = window.lastComparisonMarkdown || 
                         (document.getElementById('comparison-content')?.innerText ?? '');
             await copyToClipboard(text, copyBtn);
+        });
+    }
+
+    if (copyEditsBtn) {
+        copyEditsBtn.addEventListener('click', async () => {
+            await copyToClipboard(lastEditsCopyText, copyEditsBtn);
         });
     }
 
@@ -128,8 +139,17 @@ export function init() {
         saveBtn.addEventListener('click', handleSaveComparison);
     }
 
+    if (editsModeToggle) {
+        isEditsMode = editsModeToggle.checked;
+        editsModeToggle.addEventListener('change', () => {
+            isEditsMode = editsModeToggle.checked;
+            updateModeUI();
+        });
+    }
+
     // Focus input on load
     articleInput.focus();
+    updateModeUI();
 }
 
 /**
@@ -217,6 +237,8 @@ export function resetToSearchView() {
     const initialView = document.getElementById('initialView');
     const resultsContainer = document.getElementById('results-container');
     const articleInput = document.getElementById('article-url');
+    const editsContent = document.getElementById('edits-content');
+    const editsBox = document.getElementById('edits-box');
     
     if (body) body.classList.remove('has-results');
     if (mainContainer) mainContainer.classList.remove('has-results');
@@ -226,15 +248,19 @@ export function resetToSearchView() {
         articleInput.value = '';
         articleInput.focus();
     }
+    if (editsContent) editsContent.textContent = '';
+    if (editsBox) editsBox.classList.add('hidden');
+    lastEditsCopyText = '';
     
     clearError();
     hideLoading();
+    updateModeUI();
 }
 
 /**
- * Handle article comparison
+ * Handle article analysis based on current mode
  */
-async function compareArticlesHandler() {
+async function handleAnalyzeRequest() {
     const articleInput = document.getElementById('article-url');
     const articleUrl = articleInput?.value.trim();
 
@@ -243,8 +269,8 @@ async function compareArticlesHandler() {
         return;
     }
 
-    // Show loading with progressive messages
-    showLoading('Fetching articles...');
+    const loadingMessage = isEditsMode ? 'Preparing Grok Editor...' : 'Fetching articles...';
+    showLoading(loadingMessage);
     const resultsContainer = document.getElementById('results-container');
     if (resultsContainer) {
         resultsContainer.classList.add('hidden');
@@ -253,27 +279,51 @@ async function compareArticlesHandler() {
     setButtonDisabled('compareBtn', true);
 
     try {
-        // Simulate progressive loading states
-        setTimeout(() => {
-            updateLoadingMessage('Fetching articles...');
-        }, 500);
-        
-        setTimeout(() => {
-            updateLoadingMessage('Analyzing content...');
-        }, 1500);
-        
-        setTimeout(() => {
-            updateLoadingMessage('Comparing articles...');
-        }, 2500);
-
-        const data = await compareArticles(articleUrl);
-        displayResults(data);
+        if (isEditsMode) {
+            await runEditsFlow(articleUrl);
+        } else {
+            await runComparisonFlow(articleUrl);
+        }
     } catch (error) {
         showError(error.message);
     } finally {
         hideLoading();
         setButtonDisabled('compareBtn', false);
     }
+}
+
+async function runComparisonFlow(articleUrl) {
+    setTimeout(() => {
+        updateLoadingMessage('Fetching articles...');
+    }, 500);
+    
+    setTimeout(() => {
+        updateLoadingMessage('Analyzing content...');
+    }, 1500);
+    
+    setTimeout(() => {
+        updateLoadingMessage('Comparing articles...');
+    }, 2500);
+
+    const data = await compareArticles(articleUrl);
+    displayResults(data);
+}
+
+async function runEditsFlow(articleUrl) {
+    setTimeout(() => {
+        updateLoadingMessage('Fetching Grokipedia article...');
+    }, 500);
+
+    setTimeout(() => {
+        updateLoadingMessage('Reviewing content...');
+    }, 1500);
+
+    setTimeout(() => {
+        updateLoadingMessage('Compiling edit list...');
+    }, 2500);
+
+    const data = await requestEdits(articleUrl);
+    displayEditsResults(data);
 }
 
 /**
@@ -297,6 +347,89 @@ function displayResults(data) {
 
     // Update layout for results view
     showResultsView();
+    updateModeUI();
+}
+
+function displayEditsResults(data) {
+    currentComparisonData = null;
+    displayArticle('grokipedia-content', data.grokipedia, 'summary');
+    lastGrokCopyText = buildArticleCopy('Grokipedia', data.grokipedia);
+
+    const editsContent = document.getElementById('edits-content');
+    if (editsContent) {
+        const content = data.edits || 'No edits returned.';
+        editsContent.textContent = content;
+        lastEditsCopyText = content;
+        editsContent.scrollTop = 0;
+    }
+
+    const editsBox = document.getElementById('edits-box');
+    if (editsBox) {
+        editsBox.classList.remove('hidden');
+    }
+
+    showResultsView();
+    updateModeUI();
+}
+
+function updateModeUI() {
+    const modeDescription = document.getElementById('modeDescription');
+    const compareBtn = document.getElementById('compareBtn');
+    const resultsGrid = document.getElementById('resultsGrid');
+    const wikipediaBox = document.getElementById('wikipedia-box');
+    const comparisonBox = document.getElementById('comparison-box');
+    const copyBtn = document.getElementById('copyBtn');
+    const rawToggle = document.getElementById('rawToggle');
+    const copyEditsBtn = document.getElementById('copyEditsBtn');
+    const saveBtn = document.getElementById('saveBtn');
+    const comparisonRaw = document.getElementById('comparison-raw');
+    const editsBox = document.getElementById('edits-box');
+
+    if (modeDescription) {
+        modeDescription.textContent = isEditsMode
+            ? 'Send the Grokipedia article to Grok Editor for ruthless fix suggestions.'
+            : 'Compare Grokipedia and Wikipedia articles side-by-side.';
+    }
+
+    if (compareBtn) {
+        const label = isEditsMode ? 'Generate edit suggestions' : 'Compare articles';
+        compareBtn.setAttribute('aria-label', label);
+        compareBtn.setAttribute('title', label);
+    }
+
+    if (resultsGrid) {
+        resultsGrid.classList.toggle('edits-mode', isEditsMode);
+    }
+
+    const hideComparison = isEditsMode;
+    if (wikipediaBox) {
+        wikipediaBox.classList.toggle('hidden', hideComparison);
+    }
+    if (comparisonBox) {
+        comparisonBox.classList.toggle('hidden', hideComparison);
+    }
+    if (copyBtn) {
+        copyBtn.classList.toggle('hidden', hideComparison);
+    }
+    if (rawToggle) {
+        rawToggle.classList.toggle('hidden', hideComparison);
+    }
+    if (copyEditsBtn) {
+        copyEditsBtn.classList.toggle('hidden', !isEditsMode);
+    }
+    if (saveBtn) {
+        saveBtn.classList.toggle('hidden', isEditsMode);
+    }
+    if (comparisonRaw && hideComparison) {
+        comparisonRaw.classList.add('hidden');
+        const rawToggleBtn = document.getElementById('rawToggle');
+        if (rawToggleBtn) {
+            rawToggleBtn.setAttribute('aria-pressed', 'false');
+        }
+    }
+    if (!isEditsMode && editsBox) {
+        editsBox.classList.add('hidden');
+    }
 }
 
 // Initialize when DOM is ready
