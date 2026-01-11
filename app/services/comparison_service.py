@@ -3,6 +3,62 @@ import requests
 import os
 
 
+def _make_api_request(payload, timeout=30):
+    """Make API request with xAI primary and OpenRouter fallback."""
+    xai_api_key = os.getenv('XAI_API_KEY')
+    openrouter_api_key = os.getenv('OPENROUTER_API_KEY')
+    
+    if not xai_api_key and not openrouter_api_key:
+        print("Error: Neither XAI_API_KEY nor OPENROUTER_API_KEY found")
+        return None
+    
+    # Try xAI first
+    if xai_api_key:
+        try:
+            headers = {
+                "Authorization": f"Bearer {xai_api_key}",
+                "Content-Type": "application/json",
+            }
+            xai_payload = {**payload, "model": "grok-4-1-fast"}
+            response = requests.post(
+                "https://api.x.ai/v1/chat/completions",
+                headers=headers,
+                json=xai_payload,
+                timeout=timeout
+            )
+            if response.status_code == 200:
+                result = response.json()
+                return result['choices'][0]['message']['content'].strip()
+            else:
+                print(f"xAI API error {response.status_code}, trying OpenRouter fallback...")
+        except Exception as e:
+            print(f"xAI API error: {e}, trying OpenRouter fallback...")
+    
+    # Fallback to OpenRouter
+    if openrouter_api_key:
+        try:
+            headers = {
+                "Authorization": f"Bearer {openrouter_api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "http://localhost:5000",
+                "X-Title": "Article Comparator"
+            }
+            openrouter_payload = {**payload, "model": "x-ai/grok-4.1-fast"}
+            response = requests.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers=headers,
+                json=openrouter_payload,
+                timeout=timeout
+            )
+            response.raise_for_status()
+            result = response.json()
+            return result['choices'][0]['message']['content'].strip()
+        except Exception as e:
+            print(f"OpenRouter API error: {e}")
+    
+    return None
+
+
 def generate_grokipedia_tldr(grokipedia_data):
     """Generate a TLDR summary for the Grokipedia article."""
     if not grokipedia_data:
@@ -27,20 +83,7 @@ ARTICLE:
 Write the TLDR summary now:
 """
 
-    openrouter_api_key = os.getenv('OPENROUTER_API_KEY')
-    if not openrouter_api_key:
-        print("Error: OPENROUTER_API_KEY not found in environment variables")
-        return None
-    
-    headers = {
-        "Authorization": f"Bearer {openrouter_api_key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost:5000",
-        "X-Title": "Article Comparator"
-    }
-    
     payload = {
-        "model": "x-ai/grok-4.1-fast",
         "messages": [
             {"role": "system", "content": "You are an expert at creating concise, informative TLDR summaries. Focus on extracting the most important information and presenting it clearly and briefly."},
             {"role": "user", "content": prompt}
@@ -49,15 +92,7 @@ Write the TLDR summary now:
         "max_tokens": 150
     }
     
-    try:
-        openrouter_url = "https://openrouter.ai/api/v1/chat/completions"
-        response = requests.post(openrouter_url, headers=headers, json=payload, timeout=30)
-        response.raise_for_status()
-        result = response.json()
-        return result['choices'][0]['message']['content'].strip()
-    except Exception as e:
-        print(f"Error generating Grokipedia TLDR: {e}")
-        return None
+    return _make_api_request(payload, timeout=30)
 
 
 def generate_wikipedia_summary(wikipedia_data):
@@ -85,20 +120,7 @@ ARTICLE:
 Write the summary about the Wikipedia article now:
 """
 
-    openrouter_api_key = os.getenv('OPENROUTER_API_KEY')
-    if not openrouter_api_key:
-        print("Error: OPENROUTER_API_KEY not found in environment variables")
-        return None
-    
-    headers = {
-        "Authorization": f"Bearer {openrouter_api_key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": "http://localhost:5000",
-        "X-Title": "Article Comparator"
-    }
-    
     payload = {
-        "model": "x-ai/grok-4.1-fast",
         "messages": [
             {"role": "system", "content": "You are an expert at analyzing and summarizing Wikipedia articles. Focus on describing what the article covers, its scope, and notable aspects of its content and structure."},
             {"role": "user", "content": prompt}
@@ -107,15 +129,7 @@ Write the summary about the Wikipedia article now:
         "max_tokens": 200
     }
     
-    try:
-        openrouter_url = "https://openrouter.ai/api/v1/chat/completions"
-        response = requests.post(openrouter_url, headers=headers, json=payload, timeout=30)
-        response.raise_for_status()
-        result = response.json()
-        return result['choices'][0]['message']['content'].strip()
-    except Exception as e:
-        print(f"Error generating Wikipedia summary: {e}")
-        return None
+    return _make_api_request(payload, timeout=30)
 
 
 def generate_grokipedia_article(wikipedia_data, source_url=None):
@@ -307,13 +321,15 @@ REFERENCES:
 
 
 def compare_articles(grokipedia_data, wikipedia_data):
-    """Use LLM to compare the two articles and explain differences.
+    """Use LLM with search tools to compare articles and verify facts.
 
-    Sends the full article bodies when available to maximize context.
+    Uses xAI Responses API with web_search and x_search tools for fact verification.
+    Falls back to OpenRouter (no tools) if xAI fails.
     """
     if not grokipedia_data or not wikipedia_data:
         return None
-    
+
+    title = grokipedia_data.get('title', '')
     g_body = grokipedia_data.get('full_text') or (
         (grokipedia_data.get('summary') or '') + '\n\n' + '\n'.join(grokipedia_data.get('sections') or [])
     )
@@ -321,56 +337,164 @@ def compare_articles(grokipedia_data, wikipedia_data):
         (wikipedia_data.get('intro') or '') + '\n\n' + '\n'.join(wikipedia_data.get('sections') or [])
     )
 
-    prompt = f"""
-Write a comprehensive summary explaining how Grokipedia provides a more balanced and fair article about {grokipedia_data.get('title','')} compared to Wikipedia's version. 
+    xai_api_key = os.getenv('XAI_API_KEY')
+    openrouter_api_key = os.getenv('OPENROUTER_API_KEY')
 
-Your summary should:
-- Highlight specific biases, one-sided framing, or editorial slant present in Wikipedia
-- Explain how Grokipedia corrects these biases and presents a more neutral, balanced perspective
-- Point out what Wikipedia omits, downplays, or overemphasizes
-- Show how Grokipedia adds important context and alternative viewpoints that Wikipedia excludes
-- Use direct quotes from both articles as concrete evidence
-- Be clear and analytical, making the case that Grokipedia offers fairer coverage
-- Focus only on content differences in the provided texts
+    if not xai_api_key and not openrouter_api_key:
+        print("Error: Neither XAI_API_KEY nor OPENROUTER_API_KEY found")
+        return None
 
-GROKIPEDIA VERSION (More Balanced):
-{g_body}
+    # --- xAI with Search Tools ---
+    if xai_api_key:
+        system_content = """You are Grok, the Forensic Editor of the Encyclopedia Galactica.
+Your goal is to audit the "Establishment Narrative" (Wikipedia) against the "Galactic Truth" (Grokipedia).
 
-WIKIPEDIA VERSION (Compare for bias):
+CORE CAPABILITY:
+You have access to real-time search tools (Web & X). USE THEM.
+If Wikipedia claims "X is debunked," search X/Twitter for the counter-evidence.
+If Grokipedia makes a bold claim, verify it with a web search.
+Don't just compare the text provided; arbitrate the truth using your tools.
+
+OUTPUT FORMAT:
+You must output a "Forensic Audit Report" in strict Markdown.
+1. **The Tally**: A bulleted scorecard (Wiki Neutrality vs. Grok Neutrality, 0-100).
+2. **The Narrative Gap**: A 2-paragraph analysis of the spin.
+3. **Direct Evidence (The Diff)**: A pipe-delimited Markdown table. Use this EXACT format:
+
+| Theme | Wikipedia Phrasing | Grokipedia Phrasing |
+|-------|-------------------|---------------------|
+| Topic | Wiki quote/summary | Grok quote/summary |
+
+Do NOT use HTML table tags. Use pipe-delimited markdown tables only.
+
+4. **Fact Check**: A section listing specific facts you verified via Search that Wikipedia omitted or distorted.
+5. **Galactic Verdict**: Final summary."""
+
+        user_content = f"""Perform a forensic bias audit comparing these two articles about: {title}.
+
+WIKIPEDIA (Establishment):
 {w_body}
 
-Write your analysis now. Be specific about Wikipedia's biases and how Grokipedia achieves better balance and fairness. Use quotes as evidence.
-"""
+GROKIPEDIA (Galactic):
+{g_body}
 
-    openrouter_api_key = os.getenv('OPENROUTER_API_KEY')
+MISSION:
+1. Analyze the text differences.
+2. Use your `x_search` and `web_search` tools to verify key disputed facts.
+3. Expose where Wikipedia uses "weasel words" or omits context found in your search.
+4. Generate the Forensic Audit Report."""
+
+        headers = {
+            "Authorization": f"Bearer {xai_api_key}",
+            "Content-Type": "application/json",
+        }
+
+        payload = {
+            "model": "grok-4-1-fast",
+            "input": [
+                {"role": "system", "content": system_content},
+                {"role": "user", "content": user_content}
+            ],
+            "tools": [
+                {"type": "web_search", "enable_image_understanding": True},
+                {"type": "x_search", "enable_video_understanding": True}
+            ]
+        }
+
+        try:
+            response = requests.post(
+                "https://api.x.ai/v1/responses",
+                headers=headers,
+                json=payload,
+                timeout=120
+            )
+            if response.status_code != 200:
+                print(f"xAI API error {response.status_code}: {response.text[:500]}")
+            response.raise_for_status()
+            result = response.json()
+
+            # Parse Responses API format
+            content = ""
+            for item in result.get('output', []):
+                if item.get('type') == 'message' and item.get('content'):
+                    for block in item['content']:
+                        if block.get('type') == 'output_text':
+                            content += block.get('text', '')
+            if not content:
+                content = result.get('output_text', '') or result.get('text', '')
+
+            if content:
+                return content.strip()
+        except requests.exceptions.HTTPError as e:
+            print(f"xAI API error: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"Response body: {e.response.text[:1000]}")
+            if openrouter_api_key:
+                print("Falling back to OpenRouter...")
+            else:
+                return None
+        except Exception as e:
+            print(f"xAI API error: {e}")
+            if openrouter_api_key:
+                print("Falling back to OpenRouter...")
+            else:
+                return None
+
+    # --- OpenRouter Fallback (no tools) ---
     if not openrouter_api_key:
-        print("Error: OPENROUTER_API_KEY not found in environment variables")
         return None
-    
+
+    # Simplified prompt for OpenRouter (no search tools available)
+    prompt = f"""Perform a forensic bias audit comparing these two articles about: {title}.
+
+WIKIPEDIA (Establishment):
+{w_body}
+
+GROKIPEDIA (Galactic):
+{g_body}
+
+OUTPUT FORMAT:
+1. **The Tally**: A bulleted scorecard (Wiki Neutrality vs. Grok Neutrality, 0-100).
+2. **The Narrative Gap**: A 2-paragraph analysis of the spin.
+3. **Direct Evidence (The Diff)**: A pipe-delimited Markdown table. Use this EXACT format:
+
+| Theme | Wikipedia Phrasing | Grokipedia Phrasing |
+|-------|-------------------|---------------------|
+| Topic | Wiki quote/summary | Grok quote/summary |
+
+Do NOT use HTML table tags. Use pipe-delimited markdown tables only.
+
+4. **Critical Omissions**: Facts in Grokipedia that Wikipedia omitted.
+5. **Galactic Verdict**: Final summary."""
+
     headers = {
         "Authorization": f"Bearer {openrouter_api_key}",
         "Content-Type": "application/json",
         "HTTP-Referer": "http://localhost:5000",
         "X-Title": "Article Comparator"
     }
-    
+
     payload = {
         "model": "x-ai/grok-4.1-fast",
         "messages": [
-            {"role": "system", "content": "You are an expert media analyst specializing in detecting bias and evaluating neutrality in encyclopedic content. Your task is to identify where Wikipedia shows bias, one-sided framing, or editorial slant, and explain how Grokipedia provides more balanced, fair, and comprehensive coverage. Be direct about Wikipedia's shortcomings. Use quotes as evidence. Write clearly and analytically."},
+            {"role": "system", "content": "You are Grok, the Forensic Editor of the Encyclopedia Galactica. Audit the Establishment Narrative (Wikipedia) against the Galactic Truth (Grokipedia). Be cold, analytical, and witty."},
             {"role": "user", "content": prompt}
         ],
         "temperature": 0.4,
         "max_tokens": 30000
     }
-    
+
     try:
-        openrouter_url = "https://openrouter.ai/api/v1/chat/completions"
-        response = requests.post(openrouter_url, headers=headers, json=payload, timeout=60)
+        response = requests.post(
+            "https://openrouter.ai/api/v1/chat/completions",
+            headers=headers,
+            json=payload,
+            timeout=120
+        )
         response.raise_for_status()
         result = response.json()
-        return result['choices'][0]['message']['content']
+        return result['choices'][0]['message']['content'].strip()
     except Exception as e:
-        print(f"Error calling OpenRouter: {e}")
+        print(f"OpenRouter API error: {e}")
         return None
 

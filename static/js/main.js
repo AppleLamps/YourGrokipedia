@@ -48,6 +48,7 @@ export function init() {
     const modeButtons = document.querySelectorAll('[data-mode]');
     const copyEditsBtn = document.getElementById('copyEditsBtn');
     const copyCreateBtn = document.getElementById('copyCreateBtn');
+    const resultsSearchInput = document.getElementById('results-article-url');
 
     if (!articleInput || !compareBtn) {
         console.error('Required elements not found');
@@ -59,6 +60,36 @@ export function init() {
 
     // Update sidebar badge on load
     updateSidebarBadge();
+
+    // Initialize collapsible sections
+    initCollapsibleSections();
+
+    // Keyboard shortcut for search (Ctrl+K)
+    document.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+            e.preventDefault();
+            const resultsSearch = document.getElementById('results-article-url');
+            if (resultsSearch && !document.getElementById('results-container').classList.contains('hidden')) {
+                resultsSearch.focus();
+            } else {
+                articleInput.focus();
+            }
+        }
+    });
+
+    // Results search bar - trigger new search on Enter
+    if (resultsSearchInput) {
+        resultsSearchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const query = resultsSearchInput.value.trim();
+                if (query) {
+                    articleInput.value = query;
+                    handleAnalyzeRequest();
+                }
+            }
+        });
+    }
 
     // Home link click handlers
     if (homeLink) {
@@ -259,7 +290,7 @@ export function resetToSearchView() {
     if (body) body.classList.remove('has-results');
     if (body) body.classList.remove('create-mode-results');
     if (mainContainer) mainContainer.classList.remove('has-results');
-    if (initialView) initialView.style.minHeight = '60vh';
+    if (initialView) initialView.classList.remove('hidden');
     if (resultsContainer) resultsContainer.classList.add('hidden');
     if (articleInput) {
         articleInput.value = '';
@@ -319,37 +350,84 @@ async function handleAnalyzeRequest() {
 }
 
 async function runComparisonFlow(articleUrl) {
-    setTimeout(() => {
-        updateLoadingMessage('Fetching articles...');
-    }, 500);
+    const messages = [
+        'Fetching articles...',
+        'Retrieving Grokipedia entry...',
+        'Pulling Wikipedia content...',
+        'Analyzing content structure...',
+        'Identifying key differences...',
+        'Comparing articles...',
+        'Detecting bias patterns...',
+        'Evaluating neutrality...',
+        'Cross-referencing facts...',
+        'Analyzing framing differences...',
+        'Checking for omissions...',
+        'Reviewing source attribution...',
+        'Examining editorial slant...',
+        'Compiling analysis...',
+        'Generating comparison report...',
+        'Almost there...',
+        'Finalizing insights...'
+    ];
 
-    setTimeout(() => {
-        updateLoadingMessage('Analyzing content...');
-    }, 1500);
+    let messageIndex = 0;
+    const messageInterval = setInterval(() => {
+        if (messageIndex < messages.length) {
+            updateLoadingMessage(messages[messageIndex]);
+            messageIndex++;
+        } else {
+            // Loop back through later messages if still loading
+            messageIndex = Math.floor(messages.length / 2);
+        }
+    }, 2000);
 
-    setTimeout(() => {
-        updateLoadingMessage('Comparing articles...');
-    }, 2500);
-
-    const data = await compareArticles(articleUrl);
-    displayResults(data);
+    try {
+        const data = await compareArticles(articleUrl);
+        clearInterval(messageInterval);
+        displayResults(data);
+    } catch (error) {
+        clearInterval(messageInterval);
+        throw error;
+    }
 }
 
 async function runEditsFlow(articleUrl) {
-    setTimeout(() => {
-        updateLoadingMessage('Fetching Grokipedia article...');
-    }, 500);
+    const messages = [
+        'Fetching Grokipedia article...',
+        'Loading article content...',
+        'Reviewing content...',
+        'Checking factual accuracy...',
+        'Verifying dates and figures...',
+        'Scanning for outdated info...',
+        'Analyzing structure...',
+        'Evaluating neutrality...',
+        'Identifying improvements...',
+        'Cross-referencing sources...',
+        'Compiling edit list...',
+        'Prioritizing suggestions...',
+        'Formatting recommendations...',
+        'Almost done...',
+        'Finalizing edits...'
+    ];
 
-    setTimeout(() => {
-        updateLoadingMessage('Reviewing content...');
-    }, 1500);
+    let messageIndex = 0;
+    const messageInterval = setInterval(() => {
+        if (messageIndex < messages.length) {
+            updateLoadingMessage(messages[messageIndex]);
+            messageIndex++;
+        } else {
+            messageIndex = Math.floor(messages.length / 2);
+        }
+    }, 2000);
 
-    setTimeout(() => {
-        updateLoadingMessage('Compiling edit list...');
-    }, 2500);
-
-    const data = await requestEdits(articleUrl);
-    displayEditsResults(data);
+    try {
+        const data = await requestEdits(articleUrl);
+        clearInterval(messageInterval);
+        displayEditsResults(data);
+    } catch (error) {
+        clearInterval(messageInterval);
+        throw error;
+    }
 }
 
 async function runCreateFlow(articleUrl) {
@@ -664,5 +742,26 @@ if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', init);
 } else {
     init();
+}
+
+/**
+ * Initialize collapsible article sections
+ */
+function initCollapsibleSections() {
+    const collapsibleHeaders = document.querySelectorAll('.collapsible-header');
+
+    collapsibleHeaders.forEach(header => {
+        header.addEventListener('click', (e) => {
+            // Don't toggle if clicking on copy button
+            if (e.target.closest('.copy-btn')) {
+                return;
+            }
+
+            const articleBox = header.closest('.article-box');
+            if (articleBox) {
+                articleBox.classList.toggle('collapsed');
+            }
+        });
+    });
 }
 

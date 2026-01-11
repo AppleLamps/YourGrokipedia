@@ -98,7 +98,7 @@ export function showResultsView() {
 
     if (body) body.classList.add('has-results');
     if (mainContainer) mainContainer.classList.add('has-results');
-    if (initialView) initialView.style.minHeight = 'auto';
+    if (initialView) initialView.classList.add('hidden');
     if (resultsContainer) resultsContainer.classList.remove('hidden');
 }
 

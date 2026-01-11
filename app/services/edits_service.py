@@ -98,18 +98,36 @@ def _build_article_body(grokipedia_data: dict) -> str:
 def generate_edit_suggestions(grokipedia_data: dict) -> str:
     """Send Grokipedia article content to the xAI API for edit suggestions."""
 
-    api_key = os.getenv('XAI_API_KEY')
-    if not api_key:
-        raise RuntimeError('XAI_API_KEY is not configured')
+    xai_api_key = os.getenv('XAI_API_KEY')
+    openrouter_api_key = os.getenv('OPENROUTER_API_KEY')
+    
+    if not xai_api_key and not openrouter_api_key:
+        raise RuntimeError('Neither XAI_API_KEY nor OPENROUTER_API_KEY is configured')
 
     article_body = _build_article_body(grokipedia_data)
     if not article_body:
         raise ValueError('Grokipedia article has no content to analyze')
 
-    api_url = os.getenv('XAI_API_URL', 'https://api.x.ai/v1/chat/completions')
+    # Try xAI first, fall back to OpenRouter
+    if xai_api_key:
+        api_url = os.getenv('XAI_API_URL', 'https://api.x.ai/v1/chat/completions')
+        headers = {
+            'Authorization': f'Bearer {xai_api_key}',
+            'Content-Type': 'application/json',
+        }
+        model_name = 'grok-4-1-fast'
+    else:
+        api_url = 'https://openrouter.ai/api/v1/chat/completions'
+        headers = {
+            'Authorization': f'Bearer {openrouter_api_key}',
+            'Content-Type': 'application/json',
+            'HTTP-Referer': 'http://localhost:5000',
+            'X-Title': 'Grokipedia Editor',
+        }
+        model_name = 'x-ai/grok-4.1-fast'
 
     payload = {
-        'model': 'grok-4-1-fast-reasoning',
+        'model': model_name,
         'messages': [
             {'role': 'system', 'content': XAI_SYSTEM_PROMPT},
             {
@@ -129,12 +147,20 @@ def generate_edit_suggestions(grokipedia_data: dict) -> str:
         'max_tokens': 4000,
     }
 
-    headers = {
-        'Authorization': f'Bearer {api_key}',
-        'Content-Type': 'application/json',
-    }
-
     response = requests.post(api_url, headers=headers, json=payload, timeout=120)
+    
+    # If xAI fails, try OpenRouter fallback
+    if response.status_code != 200 and xai_api_key and openrouter_api_key:
+        print(f"xAI API error {response.status_code}, falling back to OpenRouter...")
+        api_url = 'https://openrouter.ai/api/v1/chat/completions'
+        headers = {
+            'Authorization': f'Bearer {openrouter_api_key}',
+            'Content-Type': 'application/json',
+            'HTTP-Referer': 'http://localhost:5000',
+            'X-Title': 'Grokipedia Editor',
+        }
+        payload['model'] = 'x-ai/grok-4.1-fast'
+        response = requests.post(api_url, headers=headers, json=payload, timeout=120)
     if response.status_code == 429:
         retry_after_raw = response.headers.get('Retry-After')
         retry_after_seconds = None
