@@ -37,9 +37,10 @@ COPY --from=builder /app /app
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV RAILWAY_ENVIRONMENT=true
+ENV PORT=8080
 
 # Expose port
 EXPOSE 8080
 
-# Run the application
-CMD ["gunicorn", "run:app", "--bind", "0.0.0.0:8080", "--timeout", "300", "--graceful-timeout", "120", "--workers", "1", "--threads", "2"]
+# Run the application - use shell form for variable expansion
+CMD gunicorn run:app --bind 0.0.0.0:${PORT:-8080} --timeout 300 --graceful-timeout 120 --workers 1 --threads 2
