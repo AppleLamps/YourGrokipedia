@@ -198,6 +198,8 @@ STRICT FORMATTING:
         
         try:
             response = requests.post(api_url, headers=headers, json=payload, timeout=120)
+            if response.status_code != 200:
+                print(f"xAI API error {response.status_code}: {response.text[:500]}")
             response.raise_for_status()
             result = response.json()
             # Responses API returns output array with text content
@@ -213,6 +215,15 @@ STRICT FORMATTING:
             if title and content and not content.lstrip().startswith('#'):
                 content = f"# {title}\n\n{content}"
             return content.strip() if content else None
+        except requests.exceptions.HTTPError as e:
+            print(f"Error generating Grokipedia article (xAI): {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"Response body: {e.response.text[:1000]}")
+            # Fall back to OpenRouter if xAI fails
+            if openrouter_api_key:
+                print("Falling back to OpenRouter...")
+            else:
+                return None
         except Exception as e:
             print(f"Error generating Grokipedia article (xAI): {e}")
             # Fall back to OpenRouter if xAI fails

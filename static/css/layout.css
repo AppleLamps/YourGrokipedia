@@ -290,8 +290,8 @@ body.has-results {
 }
 
 .search-container {
-    width: min(70vw, 1200px);
-    max-width: 1200px;
+    width: min(60vw, 1000px);
+    max-width: 1000px;
     margin: 0 auto 30px;
     margin-bottom: 0;
     position: relative;
