@@ -1,13 +1,37 @@
 """Article fetching services for Wikipedia and Grokipedia"""
-import requests
+import logging
 import os
 import re
+from typing import Any, Optional
+
+import requests
 from urllib.parse import urlparse
+
 from app.utils.url_parser import extract_article_title
 from app.utils.sdk_manager import get_sdk_client, is_sdk_available, ArticleNotFound, RequestError
 
+logger = logging.getLogger(__name__)
+
+# Module-level session for connection pooling
+_session: Optional[requests.Session] = None
+
+
+def _get_session() -> requests.Session:
+    """Get or create a shared requests session for connection pooling."""
+    global _session
+    if _session is None:
+        _session = requests.Session()
+        _session.headers.update({
+            'User-Agent': 'Grokipedia-Comparator/1.0 (contact: example@example.com)'
+        })
+    return _session
+
+# API timeouts (seconds)
+DEFAULT_TIMEOUT = 30
+FIRECRAWL_TIMEOUT = 60
+
 # Firecrawl API configuration
-FIRECRAWL_API_KEY = os.getenv('FIRECRAWL_API_KEY', 'fc-bb448f06d5394f32a108a8c24deb4f0e')
+FIRECRAWL_API_KEY = os.getenv('FIRECRAWL_API_KEY')
 FIRECRAWL_API_URL = "https://api.firecrawl.dev/v1/scrape"
 
 FIRECRAWL_CHROME_LINES = {
@@ -41,7 +65,7 @@ FOOTNOTE_DEFINITION_RE = re.compile(r'^\[\d+\]:\s*\S+', re.IGNORECASE)
 FACT_CHECK_LINE_RE = re.compile(r'^fact-checked by\b', re.IGNORECASE)
 
 
-def clean_firecrawl_markdown(markdown, title=""):
+def clean_firecrawl_markdown(markdown: str, title: str = "") -> str:
     """Strip UI chrome and clean Firecrawl markdown for display."""
     if not markdown:
         return markdown
@@ -80,8 +104,10 @@ def clean_firecrawl_markdown(markdown, title=""):
     return '\n'.join(cleaned_lines).strip()
 
 
-def scrape_with_firecrawl(url):
+def scrape_with_firecrawl(url: str) -> Optional[dict[str, Any]]:
     """Scrape a URL using Firecrawl API and return clean markdown."""
+    if not FIRECRAWL_API_KEY:
+        return None
     try:
         payload = {
             "url": url,
@@ -94,7 +120,7 @@ def scrape_with_firecrawl(url):
             "Content-Type": "application/json"
         }
         
-        response = requests.post(FIRECRAWL_API_URL, json=payload, headers=headers, timeout=60)
+        response = _get_session().post(FIRECRAWL_API_URL, json=payload, headers=headers, timeout=FIRECRAWL_TIMEOUT)
         response.raise_for_status()
         
         data = response.json()
@@ -106,21 +132,17 @@ def scrape_with_firecrawl(url):
                 'url': url
             }
         return None
-    except Exception as e:
-        print(f"Firecrawl error: {e}")
+    except requests.RequestException as e:
+        logger.warning("Firecrawl request failed: %s", e)
         return None
 
 
-def scrape_wikipedia(url):
+def scrape_wikipedia(url: str) -> Optional[dict[str, Any]]:
     """Fetch content from Wikipedia using official APIs for reliability.
 
     Returns dict with title, intro, sections (list[str]), url, and full_text (entire plaintext article).
     """
     try:
-        headers = {
-            'User-Agent': 'Grokipedia-Comparator/1.0 (contact: example@example.com)'
-        }
-
         # Extract the page title from URL
         title = extract_article_title(url)
         if not title:
@@ -128,7 +150,7 @@ def scrape_wikipedia(url):
 
         # 1) Fetch summary via REST API
         summary_url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{title}"
-        summary_resp = requests.get(summary_url, headers=headers, timeout=30)
+        summary_resp = _get_session().get(summary_url, timeout=DEFAULT_TIMEOUT)
         if summary_resp.status_code == 404:
             return None
         summary_resp.raise_for_status()
@@ -141,7 +163,7 @@ def scrape_wikipedia(url):
             "https://en.wikipedia.org/w/api.php?action=parse&prop=sections&format=json&page="
             + title
         )
-        sections_resp = requests.get(sections_url, headers=headers, timeout=30)
+        sections_resp = _get_session().get(sections_url, timeout=DEFAULT_TIMEOUT)
         sections = []
         if sections_resp.ok:
             try:
@@ -159,7 +181,7 @@ def scrape_wikipedia(url):
             + title
         )
         full_text = ''
-        extract_resp = requests.get(extract_url, headers=headers, timeout=30)
+        extract_resp = _get_session().get(extract_url, timeout=DEFAULT_TIMEOUT)
         if extract_resp.ok:
             try:
                 q = extract_resp.json()
@@ -177,12 +199,12 @@ def scrape_wikipedia(url):
             'url': url,
             'full_text': full_text
         }
-    except Exception as e:
-        print(f"Error fetching Wikipedia via API: {e}")
+    except requests.RequestException as e:
+        logger.error("Failed to fetch Wikipedia article: %s", e)
         return None
 
 
-def fetch_grokipedia_article(url):
+def fetch_grokipedia_article(url: str) -> Optional[dict[str, Any]]:
     """Fetch Grokipedia article using Firecrawl API.
 
     Uses Firecrawl to get clean markdown content from grokipedia.com.
@@ -221,9 +243,9 @@ def fetch_grokipedia_article(url):
         }
     
     # Fallback to SDK if Firecrawl fails
-    print("Firecrawl failed, falling back to SDK...")
+    logger.debug("Firecrawl unavailable, falling back to SDK")
     if not is_sdk_available():
-        print("Grokipedia SDK not available")
+        logger.warning("Grokipedia SDK not available")
         return None
 
     try:
@@ -256,17 +278,17 @@ def fetch_grokipedia_article(url):
                         'full_text': article.full_content
                     }
                 except (ArticleNotFound, RequestError):
-                    print(f"Could not fetch article even after resolving slug: {resolved_slug}")
+                    logger.warning("Could not fetch article after resolving slug: %s", resolved_slug)
                     return None
             else:
-                print(f"Article not found: {slug}")
+                logger.info("Article not found in Grokipedia: %s", slug)
                 return None
         except RequestError as e:
-            print(f"Error fetching Grokipedia article: {e}")
+            logger.error("Error fetching Grokipedia article: %s", e)
             return None
         finally:
             client.close()
     except Exception as e:
-        print(f"Error initializing SDK or fetching article: {e}")
+        logger.exception("Error initializing SDK or fetching article: %s", e)
         return None
 

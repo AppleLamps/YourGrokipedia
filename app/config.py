@@ -1,12 +1,20 @@
 """Application configuration"""
 import os
+import warnings
 from pathlib import Path
 
 
 class Config:
     """Base configuration"""
     # Flask settings
-    SECRET_KEY = os.environ.get('SECRET_KEY') or 'dev-secret-key-change-in-production'
+    SECRET_KEY = os.environ.get('SECRET_KEY')
+    if not SECRET_KEY:
+        warnings.warn(
+            "SECRET_KEY not set - using insecure default. "
+            "Set SECRET_KEY environment variable in production.",
+            RuntimeWarning
+        )
+        SECRET_KEY = 'dev-secret-key-change-in-production'
     
     # OpenRouter API settings
     OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY')

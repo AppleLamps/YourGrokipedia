@@ -1,15 +1,35 @@
 """LLM-powered article comparison service"""
-import requests
+import logging
 import os
+from typing import Any, Optional
+
+import requests
+
+logger = logging.getLogger(__name__)
+
+# API timeouts (seconds)
+DEFAULT_TIMEOUT = 30
+LLM_TIMEOUT = 120
+
+# Module-level session for connection pooling
+_session: Optional[requests.Session] = None
 
 
-def _make_api_request(payload, timeout=30):
+def _get_session() -> requests.Session:
+    """Get or create a shared requests session for connection pooling."""
+    global _session
+    if _session is None:
+        _session = requests.Session()
+    return _session
+
+
+def _make_api_request(payload: dict[str, Any], timeout: int = DEFAULT_TIMEOUT) -> Optional[str]:
     """Make API request with xAI primary and OpenRouter fallback."""
     xai_api_key = os.getenv('XAI_API_KEY')
     openrouter_api_key = os.getenv('OPENROUTER_API_KEY')
     
     if not xai_api_key and not openrouter_api_key:
-        print("Error: Neither XAI_API_KEY nor OPENROUTER_API_KEY found")
+        logger.error("Neither XAI_API_KEY nor OPENROUTER_API_KEY found")
         return None
     
     # Try xAI first
@@ -20,7 +40,7 @@ def _make_api_request(payload, timeout=30):
                 "Content-Type": "application/json",
             }
             xai_payload = {**payload, "model": "grok-4-1-fast"}
-            response = requests.post(
+            response = _get_session().post(
                 "https://api.x.ai/v1/chat/completions",
                 headers=headers,
                 json=xai_payload,
@@ -30,9 +50,9 @@ def _make_api_request(payload, timeout=30):
                 result = response.json()
                 return result['choices'][0]['message']['content'].strip()
             else:
-                print(f"xAI API error {response.status_code}, trying OpenRouter fallback...")
+                logger.warning("xAI API error %d, trying OpenRouter fallback", response.status_code)
         except Exception as e:
-            print(f"xAI API error: {e}, trying OpenRouter fallback...")
+            logger.warning("xAI API error: %s, trying OpenRouter fallback", e)
     
     # Fallback to OpenRouter
     if openrouter_api_key:
@@ -44,7 +64,7 @@ def _make_api_request(payload, timeout=30):
                 "X-Title": "Article Comparator"
             }
             openrouter_payload = {**payload, "model": "x-ai/grok-4.1-fast"}
-            response = requests.post(
+            response = _get_session().post(
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers=headers,
                 json=openrouter_payload,
@@ -54,12 +74,12 @@ def _make_api_request(payload, timeout=30):
             result = response.json()
             return result['choices'][0]['message']['content'].strip()
         except Exception as e:
-            print(f"OpenRouter API error: {e}")
+            logger.error("OpenRouter API error: %s", e)
     
     return None
 
 
-def generate_grokipedia_tldr(grokipedia_data):
+def generate_grokipedia_tldr(grokipedia_data: Optional[dict[str, Any]]) -> Optional[str]:
     """Generate a TLDR summary for the Grokipedia article."""
     if not grokipedia_data:
         return None
@@ -92,10 +112,10 @@ Write the TLDR summary now:
         "max_tokens": 150
     }
     
-    return _make_api_request(payload, timeout=30)
+    return _make_api_request(payload, timeout=DEFAULT_TIMEOUT)
 
 
-def generate_wikipedia_summary(wikipedia_data):
+def generate_wikipedia_summary(wikipedia_data: Optional[dict[str, Any]]) -> Optional[str]:
     """Generate a summary about the Wikipedia article."""
     if not wikipedia_data:
         return None
@@ -129,10 +149,10 @@ Write the summary about the Wikipedia article now:
         "max_tokens": 200
     }
     
-    return _make_api_request(payload, timeout=30)
+    return _make_api_request(payload, timeout=DEFAULT_TIMEOUT)
 
 
-def generate_grokipedia_article(wikipedia_data, source_url=None):
+def generate_grokipedia_article(wikipedia_data: Optional[dict[str, Any]], source_url: Optional[str] = None) -> Optional[str]:
     """Rewrite a Wikipedia article into Grokipedia style."""
     if not wikipedia_data:
         return None
@@ -211,9 +231,9 @@ STRICT FORMATTING:
         }
         
         try:
-            response = requests.post(api_url, headers=headers, json=payload, timeout=120)
+            response = _get_session().post(api_url, headers=headers, json=payload, timeout=LLM_TIMEOUT)
             if response.status_code != 200:
-                print(f"xAI API error {response.status_code}: {response.text[:500]}")
+                logger.warning("xAI API error %d: %s", response.status_code, response.text[:500])
             response.raise_for_status()
             result = response.json()
             # Responses API returns output array with text content
@@ -230,25 +250,25 @@ STRICT FORMATTING:
                 content = f"# {title}\n\n{content}"
             return content.strip() if content else None
         except requests.exceptions.HTTPError as e:
-            print(f"Error generating Grokipedia article (xAI): {e}")
+            logger.error("Error generating Grokipedia article (xAI): %s", e)
             if hasattr(e, 'response') and e.response is not None:
-                print(f"Response body: {e.response.text[:1000]}")
+                logger.error("Response body: %s", e.response.text[:1000])
             # Fall back to OpenRouter if xAI fails
             if openrouter_api_key:
-                print("Falling back to OpenRouter...")
+                logger.info("Falling back to OpenRouter")
             else:
                 return None
         except Exception as e:
-            print(f"Error generating Grokipedia article (xAI): {e}")
+            logger.error("Error generating Grokipedia article (xAI): %s", e)
             # Fall back to OpenRouter if xAI fails
             if openrouter_api_key:
-                print("Falling back to OpenRouter...")
+                logger.info("Falling back to OpenRouter")
             else:
                 return None
     
     # OpenRouter fallback (No tools)
     if not openrouter_api_key:
-        print("Error: No API key found (XAI_API_KEY or OPENROUTER_API_KEY)")
+        logger.error("No API key found (XAI_API_KEY or OPENROUTER_API_KEY)")
         return None
         
     api_url = "https://openrouter.ai/api/v1/chat/completions"
@@ -308,7 +328,7 @@ REFERENCES:
     }
 
     try:
-        response = requests.post(api_url, headers=headers, json=payload, timeout=120)
+        response = _get_session().post(api_url, headers=headers, json=payload, timeout=LLM_TIMEOUT)
         response.raise_for_status()
         result = response.json()
         content = result['choices'][0]['message']['content'].strip()
@@ -316,11 +336,11 @@ REFERENCES:
             content = f"# {title}\n\n{content}"
         return content
     except Exception as e:
-        print(f"Error generating Grokipedia article: {e}")
+        logger.error("Error generating Grokipedia article: %s", e)
         return None
 
 
-def compare_articles(grokipedia_data, wikipedia_data):
+def compare_articles(grokipedia_data: Optional[dict[str, Any]], wikipedia_data: Optional[dict[str, Any]]) -> Optional[str]:
     """Use LLM with search tools to compare articles and verify facts.
 
     Uses xAI Responses API with web_search and x_search tools for fact verification.
@@ -341,7 +361,7 @@ def compare_articles(grokipedia_data, wikipedia_data):
     openrouter_api_key = os.getenv('OPENROUTER_API_KEY')
 
     if not xai_api_key and not openrouter_api_key:
-        print("Error: Neither XAI_API_KEY nor OPENROUTER_API_KEY found")
+        logger.error("Neither XAI_API_KEY nor OPENROUTER_API_KEY found")
         return None
 
     # --- xAI with Search Tools ---
@@ -402,14 +422,14 @@ MISSION:
         }
 
         try:
-            response = requests.post(
+            response = _get_session().post(
                 "https://api.x.ai/v1/responses",
                 headers=headers,
                 json=payload,
-                timeout=120
+                timeout=LLM_TIMEOUT
             )
             if response.status_code != 200:
-                print(f"xAI API error {response.status_code}: {response.text[:500]}")
+                logger.warning("xAI API error %d: %s", response.status_code, response.text[:500])
             response.raise_for_status()
             result = response.json()
 
@@ -426,17 +446,17 @@ MISSION:
             if content:
                 return content.strip()
         except requests.exceptions.HTTPError as e:
-            print(f"xAI API error: {e}")
+            logger.error("xAI API error: %s", e)
             if hasattr(e, 'response') and e.response is not None:
-                print(f"Response body: {e.response.text[:1000]}")
+                logger.error("Response body: %s", e.response.text[:1000])
             if openrouter_api_key:
-                print("Falling back to OpenRouter...")
+                logger.info("Falling back to OpenRouter")
             else:
                 return None
         except Exception as e:
-            print(f"xAI API error: {e}")
+            logger.error("xAI API error: %s", e)
             if openrouter_api_key:
-                print("Falling back to OpenRouter...")
+                logger.info("Falling back to OpenRouter")
             else:
                 return None
 
@@ -485,16 +505,16 @@ Do NOT use HTML table tags. Use pipe-delimited markdown tables only.
     }
 
     try:
-        response = requests.post(
+        response = _get_session().post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers=headers,
             json=payload,
-            timeout=120
+            timeout=LLM_TIMEOUT
         )
         response.raise_for_status()
         result = response.json()
         return result['choices'][0]['message']['content'].strip()
     except Exception as e:
-        print(f"OpenRouter API error: {e}")
+        logger.error("OpenRouter API error: %s", e)
         return None
 

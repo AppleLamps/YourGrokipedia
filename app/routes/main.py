@@ -1,5 +1,9 @@
 """Main application routes"""
+import logging
+from urllib.parse import quote
+
 from flask import Blueprint, render_template, request, jsonify
+
 from app.utils.url_parser import (
     detect_source,
     convert_to_other_source,
@@ -15,6 +19,7 @@ from app.services.comparison_service import (
 )
 from app.services.edits_service import generate_edit_suggestions, XAIRateLimitError
 
+logger = logging.getLogger(__name__)
 
 bp = Blueprint('main', __name__)
 
@@ -32,7 +37,10 @@ def search_articles():
     from app.utils.url_parser import detect_source, extract_article_title
     
     query = request.args.get('q', '').strip()
-    limit = int(request.args.get('limit', 10))
+    try:
+        limit = min(int(request.args.get('limit', 10)), 100)
+    except (TypeError, ValueError):
+        limit = 10
     
     if not query:
         return jsonify({'results': []})
@@ -73,13 +81,13 @@ def search_articles():
         
         # Convert to response format directly - SDK already sorted by relevance
         results = [
-            {'slug': slug, 'title': slug.replace('_', ' '), 'url': f"https://grokipedia.com/page/{slug}"}
+            {'slug': slug, 'title': slug.replace('_', ' '), 'url': f"https://grokipedia.com/page/{quote(slug, safe='')}"}
             for slug in slugs
         ]
         
         return jsonify({'results': results})
     except Exception as e:
-        print(f"Error searching articles: {e}")
+        logger.error("Error searching articles: %s", e)
         return jsonify({'error': str(e)}), 500
 
 
@@ -87,7 +95,7 @@ def search_articles():
 def compare():
     """Handle article comparison requests"""
     try:
-        data = request.json
+        data = request.json or {}
         article_url = data.get('article_url', '').strip()
         
         if not article_url:
@@ -100,7 +108,7 @@ def compare():
             # This lets users paste "Comcast" or a near match and we resolve to a Grokipedia page
             resolved_slug = resolve_local_slug_if_available(article_url)
             if resolved_slug:
-                article_url = f"https://grokipedia.com/page/{resolved_slug}"
+                article_url = f"https://grokipedia.com/page/{quote(resolved_slug, safe='')}"
                 source = 'grokipedia'
             else:
                 return jsonify({'error': 'Invalid input. Provide a Grokipedia/Wikipedia URL or a recognizable article name.'}), 400
@@ -157,7 +165,7 @@ def compare():
         return jsonify(results)
         
     except Exception as e:
-        print(f"Error in compare endpoint: {e}")
+        logger.exception("Error in compare endpoint: %s", e)
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
 
@@ -183,7 +191,7 @@ def edits():
         else:
             resolved_slug = resolve_local_slug_if_available(article_url)
             if resolved_slug:
-                grokipedia_url = f"https://grokipedia.com/page/{resolved_slug}"
+                grokipedia_url = f"https://grokipedia.com/page/{quote(resolved_slug, safe='')}"
             else:
                 return jsonify({'error': 'Provide a Grokipedia URL or recognizable article name'}), 400
 
@@ -211,7 +219,7 @@ def edits():
     except (RuntimeError, ValueError) as e:
         return jsonify({'error': str(e)}), 400
     except Exception as e:
-        print(f"Error in edits endpoint: {e}")
+        logger.exception("Error in edits endpoint: %s", e)
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 
 
@@ -245,7 +253,7 @@ def create():
             if resolved_slug:
                 search_slug = resolved_slug
                 wikipedia_url = convert_to_other_source(
-                    f"https://grokipedia.com/page/{resolved_slug}"
+                    f"https://grokipedia.com/page/{quote(resolved_slug, safe='')}"
                 )
             else:
                 # Use the input directly as the search term
@@ -272,7 +280,7 @@ def create():
                     
                     if exact_match:
                         # Grokipedia already has this article - fetch it
-                        grokipedia_url = f"https://grokipedia.com/page/{exact_match}"
+                        grokipedia_url = f"https://grokipedia.com/page/{quote(exact_match, safe='')}"
                         grokipedia_data = fetch_grokipedia_article(grokipedia_url)
                         
                         if grokipedia_data:
@@ -288,7 +296,7 @@ def create():
                                 'message': f'Grokipedia already has an article on "{exact_match.replace("_", " ")}"'
                             })
             except Exception as e:
-                print(f"Error checking for existing article: {e}")
+                logger.warning("Error checking for existing article: %s", e)
                 # Continue to generation if check fails
 
         # No existing article found - generate a new one
@@ -308,6 +316,6 @@ def create():
         })
 
     except Exception as e:
-        print(f"Error in create endpoint: {e}")
+        logger.exception("Error in create endpoint: %s", e)
         return jsonify({'error': f'Internal server error: {str(e)}'}), 500
 

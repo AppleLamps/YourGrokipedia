@@ -1,6 +1,9 @@
 """SDK client management and initialization"""
+import logging
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # SDK module-level storage
 _sdk_available = False
@@ -35,9 +38,12 @@ def initialize_sdk():
             RequestError = SDKRequestError
             return True
         except ImportError as e:
-            print(f"Warning: Could not import Grokipedia SDK: {e}")
-            print("Please ensure dependencies are installed: pip install -r requirements.txt")
-            print("Or install the SDK package: pip install -e grokipedia-sdk/")
+            logger.warning(
+                "Could not import Grokipedia SDK: %s. "
+                "Please ensure dependencies are installed: pip install -r requirements.txt "
+                "or install the SDK package: pip install -e grokipedia-sdk/",
+                e
+            )
             _sdk_available = False
             return False
 
@@ -51,7 +57,7 @@ def get_cached_client():
     """Get or create a cached SDK client instance for reuse"""
     global _cached_client
     if _cached_client is None and _sdk_available:
-        print("Initializing Grokipedia SDK client (loading article index)...")
+        logger.info("Initializing Grokipedia SDK client (loading article index)")
         try:
             from app.config import Config
             from grokipedia_sdk import SlugIndex
@@ -62,7 +68,7 @@ def get_cached_client():
             _cached_client = Client(slug_index=slug_index)
         except Exception:
             _cached_client = Client()
-        print("SDK client ready!")
+        logger.info("SDK client ready")
     return _cached_client
 
 
@@ -95,6 +101,6 @@ def warm_slug_index():
         client.search_slug("indexwarm", limit=1, fuzzy=False)
         return True
     except Exception as e:
-        print(f"Warning: failed to warm slug index: {e}")
+        logger.warning("Failed to warm slug index: %s", e)
         return False
 

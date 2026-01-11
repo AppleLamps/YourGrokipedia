@@ -1,10 +1,28 @@
 """Service for generating edit suggestions via xAI."""
 from __future__ import annotations
 
+import logging
 import os
 from textwrap import dedent
+from typing import Optional
 
 import requests
+
+logger = logging.getLogger(__name__)
+
+# API timeout (seconds)
+LLM_TIMEOUT = 120
+
+# Module-level session for connection pooling
+_session: Optional[requests.Session] = None
+
+
+def _get_session() -> requests.Session:
+    """Get or create a shared requests session for connection pooling."""
+    global _session
+    if _session is None:
+        _session = requests.Session()
+    return _session
 
 
 class XAIRateLimitError(RuntimeError):
@@ -147,11 +165,11 @@ def generate_edit_suggestions(grokipedia_data: dict) -> str:
         'max_tokens': 4000,
     }
 
-    response = requests.post(api_url, headers=headers, json=payload, timeout=120)
+    response = _get_session().post(api_url, headers=headers, json=payload, timeout=LLM_TIMEOUT)
     
     # If xAI fails, try OpenRouter fallback
     if response.status_code != 200 and xai_api_key and openrouter_api_key:
-        print(f"xAI API error {response.status_code}, falling back to OpenRouter...")
+        logger.warning("xAI API error %d, falling back to OpenRouter", response.status_code)
         api_url = 'https://openrouter.ai/api/v1/chat/completions'
         headers = {
             'Authorization': f'Bearer {openrouter_api_key}',
@@ -160,7 +178,7 @@ def generate_edit_suggestions(grokipedia_data: dict) -> str:
             'X-Title': 'Grokipedia Editor',
         }
         payload['model'] = 'x-ai/grok-4.1-fast'
-        response = requests.post(api_url, headers=headers, json=payload, timeout=120)
+        response = _get_session().post(api_url, headers=headers, json=payload, timeout=LLM_TIMEOUT)
     if response.status_code == 429:
         retry_after_raw = response.headers.get('Retry-After')
         retry_after_seconds = None
