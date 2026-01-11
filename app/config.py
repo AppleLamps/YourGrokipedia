@@ -19,4 +19,7 @@ class Config:
         'grokipedia_sdk',
         'links'
     )
+    LIGHTWEIGHT_MODE = os.getenv('GROKIPEDIA_LIGHTWEIGHT', '').strip().lower() in (
+        '1', 'true', 'yes', 'on'
+    )
 

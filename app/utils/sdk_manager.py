@@ -55,7 +55,10 @@ def get_cached_client():
         try:
             from app.config import Config
             from grokipedia_sdk import SlugIndex
-            slug_index = SlugIndex(links_dir=Config.LINKS_DIR)
+            slug_index = SlugIndex(
+                links_dir=Config.LINKS_DIR,
+                use_bktree=not Config.LIGHTWEIGHT_MODE
+            )
             _cached_client = Client(slug_index=slug_index)
         except Exception:
             _cached_client = Client()
@@ -67,7 +70,16 @@ def get_sdk_client():
     """Get a new SDK client instance (for one-off operations)"""
     if not _sdk_available:
         raise RuntimeError("SDK not available")
-    return Client()
+    try:
+        from app.config import Config
+        from grokipedia_sdk import SlugIndex
+        slug_index = SlugIndex(
+            links_dir=Config.LINKS_DIR,
+            use_bktree=not Config.LIGHTWEIGHT_MODE
+        )
+        return Client(slug_index=slug_index)
+    except Exception:
+        return Client()
 
 
 def warm_slug_index():
